@@ -42,6 +42,8 @@
     {{else}}
     <div class="muted">No intel fetched for this IP yet.</div>
     {{end}}
+    {{with $d.Scan}}<a href="https://www.shodan.io/host/{{.IP}}" target="_blank" rel="noopener noreferrer">View {{.IP}} on Shodan ↗</a>
+    {{else}}{{with $d.Current}}<a href="https://www.shodan.io/host/{{.IP}}" target="_blank" rel="noopener noreferrer">View {{.IP}} on Shodan ↗</a>{{end}}{{end}}
   </div>
 </section>
 
