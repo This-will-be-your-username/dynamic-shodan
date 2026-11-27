@@ -1,0 +1,5 @@
+# Keep LF everywhere so s6 scripts and shell files work inside the container
+# even when the repo is checked out on Windows.
+* text=auto eol=lf
+*.png binary
+*.ico binary
