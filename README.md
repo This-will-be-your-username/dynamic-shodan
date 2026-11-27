@@ -28,7 +28,6 @@ You need a [Shodan API key](https://account.shodan.io/) and a dynamic DNS hostna
 ```sh
 docker run -d --name dynamic-shodan \
   -p 8080:8080 \
-  -e DYNAMIC_SHODAN_AUTH=admin:change-me \
   -v ./config:/config \
   ghcr.io/this-will-be-your-username/dynamic-shodan:latest
 ```
@@ -125,7 +124,6 @@ Wants=network-online.target
 [Service]
 User=dynamic-shodan
 ExecStart=/usr/local/bin/dynamic-shodan -listen 0.0.0.0:8080 -data /var/lib/dynamic-shodan
-Environment=DYNAMIC_SHODAN_AUTH=admin:change-me
 StateDirectory=dynamic-shodan
 Restart=on-failure
 
@@ -159,7 +157,6 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Etc/UTC
-      - DYNAMIC_SHODAN_AUTH=admin:change-me   # optional, recommended
     volumes:
       - /path/to/dynamic-shodan/config:/config
     ports:
@@ -173,7 +170,6 @@ services:
 docker run -d \
   --name=dynamic-shodan \
   -e PUID=1000 -e PGID=1000 -e TZ=Etc/UTC \
-  -e DYNAMIC_SHODAN_AUTH=admin:change-me \
   -p 8080:8080 \
   -v /path/to/dynamic-shodan/config:/config \
   --restart unless-stopped \
