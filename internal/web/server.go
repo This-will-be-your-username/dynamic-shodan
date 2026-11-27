@@ -73,7 +73,10 @@ func securityHeaders(next http.Handler) http.Handler {
 		hdr.Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		hdr.Set("X-Content-Type-Options", "nosniff")
 		hdr.Set("X-Frame-Options", "DENY")
-		hdr.Set("Referrer-Policy", "no-referrer")
+		// Not "no-referrer": that makes browsers send "Origin: null" on form
+		// posts, and over plain HTTP to a non-localhost host (no Sec-Fetch-Site)
+		// CrossOriginProtection then rejects every same-site POST.
+		hdr.Set("Referrer-Policy", "same-origin")
 		hdr.Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
 	})
