@@ -38,8 +38,10 @@
 
   <div class="actions">
     <button type="submit">Save</button>
-    <button type="submit" formaction="/config/test" class="secondary">Test API key</button>
+    <button type="submit" formaction="/config/test" class="secondary" id="test-key">Test API key</button>
   </div>
+  <div id="test-result" class="flash" role="status" aria-live="polite" hidden></div>
 </form>
+<script src="/static/config.js" defer></script>
 <p class="muted small">Data directory: <span class="mono">{{$d.DataDir}}</span></p>
 {{end}}

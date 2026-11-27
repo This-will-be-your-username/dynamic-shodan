@@ -282,23 +282,42 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/config", "ok", "Saved. A check has been started.")
 }
 
+// testKey checks an API key against Shodan. The config page calls it with
+// fetch (Accept: application/json) so the form keeps its unsaved values; a
+// plain form post (no JavaScript) falls back to a redirect with a flash message.
 func (s *Server) testKey(w http.ResponseWriter, r *http.Request) {
+	reply := func(ok bool, msg string) {
+		if strings.Contains(r.Header.Get("Accept"), "application/json") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(struct {
+				OK      bool   `json:"ok"`
+				Message string `json:"message"`
+			}{ok, msg})
+			return
+		}
+		key := "err"
+		if ok {
+			key = "ok"
+		}
+		redirect(w, r, "/config", key, msg)
+	}
+
 	key := strings.TrimSpace(r.FormValue("shodan_api_key"))
 	if key == "" {
 		key = s.store.Config().ShodanAPIKey
 	}
 	if key == "" {
-		redirect(w, r, "/config", "err", "Enter an API key to test.")
+		reply(false, "Enter an API key to test.")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	info, err := s.shodan.APIInfo(ctx, key)
 	if err != nil {
-		redirect(w, r, "/config", "err", "Key test failed: "+err.Error())
+		reply(false, "Key test failed: "+err.Error())
 		return
 	}
-	redirect(w, r, "/config", "ok", fmt.Sprintf("Key is valid (plan: %s, query credits: %d, scan credits: %d). Not saved yet unless you press Save.",
+	reply(true, fmt.Sprintf("Key is valid (plan: %s, query credits: %d, scan credits: %d). Not saved yet unless you press Save.",
 		info.Plan, info.QueryCredits, info.ScanCredits))
 }
 
