@@ -1,0 +1,11 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+
+# Optional basic auth for the web UI: set DYNAMIC_SHODAN_AUTH=user:password
+# (it is read from the environment by the app itself).
+
+exec \
+    s6-notifyoncheck -d -n 300 -w 1000 -c "nc -z localhost 8080" \
+        s6-setuidgid abc /app/dynamic-shodan \
+            -listen 0.0.0.0:8080 \
+            -data /config
