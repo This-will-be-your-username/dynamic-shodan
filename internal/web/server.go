@@ -4,7 +4,6 @@ package web
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -35,9 +34,6 @@ type Server struct {
 	mon    *monitor.Monitor
 	shodan *shodan.Client
 	pages  map[string]*template.Template
-
-	// Optional HTTP basic auth; empty user disables it.
-	AuthUser, AuthPass string
 }
 
 func New(s *store.Store, m *monitor.Monitor, c *shodan.Client) (*Server, error) {
@@ -68,7 +64,6 @@ func (s *Server) Handler() http.Handler {
 
 	// Reject cross-site form posts (CSRF) using Sec-Fetch-Site / Origin.
 	var h http.Handler = http.NewCrossOriginProtection().Handler(mux)
-	h = s.auth(h)
 	return securityHeaders(h)
 }
 
@@ -80,23 +75,6 @@ func securityHeaders(next http.Handler) http.Handler {
 		hdr.Set("X-Frame-Options", "DENY")
 		hdr.Set("Referrer-Policy", "no-referrer")
 		hdr.Set("Cache-Control", "no-store")
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (s *Server) auth(next http.Handler) http.Handler {
-	if s.AuthUser == "" {
-		return next
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		u, p, ok := r.BasicAuth()
-		userOK := subtle.ConstantTimeCompare([]byte(u), []byte(s.AuthUser)) == 1
-		passOK := subtle.ConstantTimeCompare([]byte(p), []byte(s.AuthPass)) == 1
-		if !ok || !userOK || !passOK {
-			w.Header().Set("WWW-Authenticate", `Basic realm="dynamic-shodan", charset="UTF-8"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
 		next.ServeHTTP(w, r)
 	})
 }

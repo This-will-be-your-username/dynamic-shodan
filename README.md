@@ -42,7 +42,7 @@ go run .
 
 Then:
 
-1. Open <http://localhost:8080/> (log in with the `DYNAMIC_SHODAN_AUTH` credentials if you set them).
+1. Open <http://localhost:8080/>.
 2. Go to **Configuration**, paste your Shodan API key and click **Test API key**.
 3. Enter your DDNS hostname and **Save**.
 4. Back on the **Dashboard**, click **Check now**. Your IP, Shodan intel and any current exposure appear within a few seconds.
@@ -58,10 +58,9 @@ Then:
 |---|---|---|
 | `-listen` | `127.0.0.1:8080` | Address and port for the web UI |
 | `-data` | *OS config dir* `/dynamic-shodan` | Where `config.json` and `state.json` live |
-| `-auth` | env `DYNAMIC_SHODAN_AUTH` | Optional HTTP basic auth, `user:password` |
 | `-version` | | Print the version and exit |
 
-By default the UI listens on **loopback only**. If you bind to anything else (`-listen 0.0.0.0:8080`), set `-auth`: without it, anyone who can reach the port can view your intel and change settings, and the app logs a warning at startup.
+By default the UI listens on **loopback only**. If you bind to anything else (`-listen 0.0.0.0:8080`), anyone who can reach the port can view your intel and change settings (the app logs a warning at startup), so keep it off the internet or put it behind a reverse proxy that handles authentication.
 
 ### Data directory
 
@@ -185,7 +184,6 @@ docker run -d \
 | `-e PGID=1000` | Group ID that owns `/config` |
 | `-e TZ=Etc/UTC` | Timezone used for displayed timestamps |
 | `-e UMASK=022` | Optional umask for created files |
-| `-e DYNAMIC_SHODAN_AUTH=user:pass` | Optional HTTP basic auth for the UI |
 | `-v /config` | `config.json` and `state.json` |
 
 #### Image tags
@@ -297,7 +295,7 @@ On first launch the app records your current IP as held "since now", so everythi
 
 ### JSON API
 
-`GET /api/status` returns a JSON summary for scripts and monitoring: current IP and ownership period, current services and vulnerabilities, stale-finding count and the last error. It uses the same basic auth as the UI.
+`GET /api/status` returns a JSON summary for scripts and monitoring: current IP and ownership period, current services and vulnerabilities, stale-finding count and the last error.
 
 ```sh
 curl -u admin:change-me http://localhost:8080/api/status
@@ -318,7 +316,7 @@ curl -u admin:change-me http://localhost:8080/api/status
 
 ### Security
 
-- Loopback-only by default; optional HTTP basic auth for everything else.
+- Loopback-only by default; no built-in authentication, so expose it only on trusted networks or behind an authenticating reverse proxy.
 - Form posts are protected against cross-site requests (`http.CrossOriginProtection`).
 - Pages send a strict Content-Security-Policy.
 - The API key never leaves the server after you save it.

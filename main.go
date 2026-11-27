@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -14,7 +13,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -31,7 +29,6 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	listen := flag.String("listen", "127.0.0.1:8080", "address for the web UI")
 	dataDir := flag.String("data", defaultDataDir(), "directory for config and history")
-	auth := flag.String("auth", os.Getenv("DYNAMIC_SHODAN_AUTH"), "optional basic auth as user:password (or env DYNAMIC_SHODAN_AUTH)")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println("dynamic-shodan", version)
@@ -39,12 +36,12 @@ func main() {
 	}
 	log.Printf("dynamic-shodan %s", version)
 
-	if err := run(*listen, *dataDir, *auth); err != nil {
+	if err := run(*listen, *dataDir); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(listen, dataDir, auth string) error {
+func run(listen, dataDir string) error {
 	st, err := store.Open(dataDir)
 	if err != nil {
 		return err
@@ -55,14 +52,8 @@ func run(listen, dataDir, auth string) error {
 	if err != nil {
 		return err
 	}
-	if auth != "" {
-		user, pass, ok := strings.Cut(auth, ":")
-		if !ok || user == "" || pass == "" {
-			return errors.New("-auth must be in the form user:password")
-		}
-		srv.AuthUser, srv.AuthPass = user, pass
-	} else if !isLoopback(listen) {
-		log.Printf("WARNING: listening on %s without -auth; anyone who can reach it can view intel and change settings", listen)
+	if !isLoopback(listen) {
+		log.Printf("WARNING: listening on %s; anyone who can reach it can view intel and change settings", listen)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
