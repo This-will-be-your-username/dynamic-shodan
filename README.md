@@ -30,13 +30,13 @@ docker run -d --name dynamic-shodan \
   -p 8080:8080 \
   -e DYNAMIC_SHODAN_AUTH=admin:change-me \
   -v ./config:/config \
-  ghcr.io/<owner>/dynamic-shodan:latest
+  ghcr.io/this-will-be-your-username/dynamic-shodan:latest
 ```
 
 **Or from source** (Go 1.25+):
 
 ```sh
-git clone https://github.com/<owner>/dynamic-shodan.git
+git clone https://github.com/This-will-be-your-username/dynamic-shodan.git
 cd dynamic-shodan
 go run .
 ```
@@ -82,7 +82,7 @@ Back up the directory to keep your history. Delete `state.json` to start over wi
 
 ### Windows
 
-Download `dynamic-shodan-<version>-windows-amd64.exe` (or `arm64`) from the releases page, or build it yourself:
+Download `dynamic-shodan-<version>-windows-amd64.exe` (or `arm64`) from the [releases page](https://github.com/This-will-be-your-username/dynamic-shodan/releases), or build it yourself:
 
 ```powershell
 go build -o dynamic-shodan.exe .
@@ -153,7 +153,7 @@ The image follows [LinuxServer.io](https://www.linuxserver.io/) conventions: it'
 ```yaml
 services:
   dynamic-shodan:
-    image: ghcr.io/<owner>/dynamic-shodan:latest
+    image: ghcr.io/this-will-be-your-username/dynamic-shodan:latest
     container_name: dynamic-shodan
     environment:
       - PUID=1000
@@ -177,7 +177,7 @@ docker run -d \
   -p 8080:8080 \
   -v /path/to/dynamic-shodan/config:/config \
   --restart unless-stopped \
-  ghcr.io/<owner>/dynamic-shodan:latest
+  ghcr.io/this-will-be-your-username/dynamic-shodan:latest
 ```
 
 #### Parameters
