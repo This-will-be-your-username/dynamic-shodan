@@ -27,6 +27,7 @@ type State struct {
 	Scans     map[string]*model.Scan `json:"scans"` // latest scan per IP
 	LastCheck time.Time              `json:"last_check"`
 	LastError string                 `json:"last_error,omitempty"`
+	Rescan    *model.Rescan          `json:"rescan,omitempty"` // latest on-demand scan request
 }
 
 // Current returns the most recent ownership period, if any.
@@ -88,6 +89,10 @@ func (s *Store) Snapshot() State {
 	defer s.mu.RUnlock()
 	out := s.st
 	out.History = append([]model.Period(nil), s.st.History...)
+	if s.st.Rescan != nil {
+		r := *s.st.Rescan
+		out.Rescan = &r
+	}
 	out.Scans = make(map[string]*model.Scan, len(s.st.Scans))
 	for k, v := range s.st.Scans {
 		c := *v
@@ -116,6 +121,14 @@ func (s *Store) SaveScan(scan *model.Scan) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.st.Scans[scan.IP] = scan
+	return s.saveStateLocked()
+}
+
+// SetRescan records the latest on-demand scan request.
+func (s *Store) SetRescan(r model.Rescan) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.st.Rescan = &r
 	return s.saveStateLocked()
 }
 

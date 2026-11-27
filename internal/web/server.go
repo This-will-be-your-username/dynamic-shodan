@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -60,6 +61,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /config", s.saveConfig)
 	mux.HandleFunc("POST /config/test", s.testKey)
 	mux.HandleFunc("POST /check", s.checkNow)
+	mux.HandleFunc("POST /rescan", s.rescanNow)
 	mux.HandleFunc("GET /api/status", s.apiStatus)
 	static, _ := fs.Sub(assets, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
@@ -146,6 +148,10 @@ type dashView struct {
 	LastError  string
 	NextCheck  time.Time
 	Busy       bool
+	// Latest on-demand Shodan scan request, and whether it's still running.
+	Rescan        *model.Rescan
+	RescanPending bool
+	CanRescan     bool
 }
 
 func (s *Server) buildDash(viewIP string) dashView {
@@ -174,6 +180,10 @@ func (s *Server) buildDash(viewIP string) dashView {
 		v.Fresh, v.Stale = model.Classify(scan, v.Owner, v.OwnerOK)
 		v.Vulns = model.FreshVulns(v.Fresh)
 	}
+	v.Rescan = snap.Rescan
+	v.RescanPending = snap.Rescan.Pending(time.Now())
+	v.CanRescan = cfg.ShodanAPIKey != "" && v.Current != nil &&
+		!(v.RescanPending && snap.Rescan.IP == v.Current.IP)
 	return v
 }
 
@@ -195,6 +205,21 @@ func (s *Server) checkNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirect(w, r, "/", "ok", "Check complete.")
+}
+
+func (s *Server) rescanNow(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	res, err := s.mon.RequestRescan(ctx)
+	if errors.Is(err, monitor.ErrRescanPending) {
+		redirect(w, r, "/", "err", fmt.Sprintf("A rescan of %s is already running (requested %s).", res.IP, human(time.Since(res.RequestedAt), "ago", "from now")))
+		return
+	}
+	if err != nil {
+		redirect(w, r, "/", "err", "Rescan failed: "+err.Error())
+		return
+	}
+	redirect(w, r, "/", "ok", fmt.Sprintf("Shodan rescan of %s requested (%d scan credit(s) left). Results are fetched automatically when it finishes, usually within a few minutes.", res.IP, res.CreditsLeft))
 }
 
 // ---- history ----
@@ -357,6 +382,7 @@ func parseConfigForm(r *http.Request, old model.Config) (model.Config, error) {
 	if cfg.ShodanRefreshHours, err = intField(r, "shodan_refresh_hours", 1, model.MaxShodanRefreshHours); err != nil {
 		return old, err
 	}
+	cfg.RescanOnIPChange = r.FormValue("rescan_on_ip_change") == "on"
 	return cfg, nil
 }
 
@@ -401,6 +427,8 @@ func (s *Server) apiStatus(w http.ResponseWriter, r *http.Request) {
 		"fresh_services": d.Fresh,
 		"stale_count":    len(d.Stale),
 		"fresh_vulns":    d.Vulns,
+		"rescan":         d.Rescan,
+		"rescan_pending": d.RescanPending,
 	}
 	if d.OwnerOK {
 		out["ownership"] = d.Owner
@@ -441,6 +469,15 @@ var funcs = template.FuncMap{
 		return human(b.Sub(a), "", "")
 	},
 	"join": strings.Join,
+	"scanstatus": func(s string) string {
+		switch s {
+		case "QUEUE":
+			return "queued at Shodan"
+		case "PROCESSING":
+			return "scanning"
+		}
+		return "submitted"
+	},
 	"sev": func(c float64) string {
 		switch {
 		case c >= 9:

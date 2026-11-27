@@ -8,6 +8,9 @@
       placeholder="{{if $d.KeyHint}}Key {{$d.KeyHint}}. Leave blank to keep it{{else}}Paste your Shodan API key{{end}}">
     <p class="hint">Find it at account.shodan.io. Host lookups don't use query credits. The key is stored in the data directory and never shown again here.</p>
     {{if $d.KeyHint}}<label class="check"><input type="checkbox" name="clear_key"> Remove the stored key</label>{{end}}
+
+    <label class="check"><input type="checkbox" name="rescan_on_ip_change"{{if $d.Cfg.RescanOnIPChange}} checked{{end}}> Request a Shodan rescan when my IP changes</label>
+    <p class="hint">Shodan only crawls each address every few days, so right after a change it mostly knows about the previous holder. This asks for an on-demand scan of the new IP and fetches the results when it's done. Each rescan uses 1 scan credit (included with paid plans; see <em>Test API key</em> for your balance). You can also request one from the dashboard.</p>
   </fieldset>
 
   <fieldset>

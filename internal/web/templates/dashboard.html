@@ -44,6 +44,20 @@
     {{end}}
     {{with $d.Scan}}<a href="https://www.shodan.io/host/{{.IP}}" target="_blank" rel="noopener noreferrer">View {{.IP}} on Shodan ↗</a>
     {{else}}{{with $d.Current}}<a href="https://www.shodan.io/host/{{.IP}}" target="_blank" rel="noopener noreferrer">View {{.IP}} on Shodan ↗</a>{{end}}{{end}}
+    <div class="rescan">
+      {{with $d.Rescan}}
+      <div class="small {{if .Error}}error-line{{else}}muted{{end}}">
+        {{if .Auto}}Automatic rescan{{else}}Rescan{{end}} of <span class="mono">{{.IP}}</span> requested {{ago .RequestedAt}}:
+        {{if .Error}}{{.Error}}{{else if not .CompletedAt.IsZero}}finished {{ago .CompletedAt}}{{else if $d.RescanPending}}{{scanstatus .Status}}…{{else}}no result after 24 h, no longer followed{{end}}
+      </div>
+      {{end}}
+      {{if $d.Current}}
+      <form method="post" action="/rescan">
+        <button type="submit" class="secondary"{{if not $d.CanRescan}} disabled{{end}}>Request rescan</button>
+        <span class="hint">Asks Shodan to scan {{$d.Current.IP}} now. Uses 1 scan credit.</span>
+      </form>
+      {{end}}
+    </div>
   </div>
 </section>
 

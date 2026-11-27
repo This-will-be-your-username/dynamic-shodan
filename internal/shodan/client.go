@@ -44,15 +44,28 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("shodan API error (HTTP %d): %s", e.Status, e.Message)
 }
 
-// get performs a GET and decodes JSON into out. The API key travels in the
-// query string, so errors are scrubbed of the URL to keep it out of logs/UI.
+// get performs a GET and decodes JSON into out.
 func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path+"?"+q.Encode(), nil)
+	return c.do(ctx, http.MethodGet, path, q, nil, out)
+}
+
+// do sends a request (with form as a urlencoded body when non-nil) and
+// decodes the JSON reply into out. The API key travels in the query string,
+// so errors are scrubbed of the URL to keep it out of logs/UI.
+func (c *Client) do(ctx context.Context, method, path string, q, form url.Values, out any) error {
+	var reqBody io.Reader
+	if form != nil {
+		reqBody = strings.NewReader(form.Encode())
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path+"?"+q.Encode(), reqBody)
 	if err != nil {
 		return errors.New("building shodan request failed")
 	}
 	req.Header.Set("User-Agent", "dynamic-shodan/1.0")
 	req.Header.Set("Accept", "application/json")
+	if form != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		var ue *url.Error
@@ -96,6 +109,38 @@ func (c *Client) APIInfo(ctx context.Context, key string) (*APIInfo, error) {
 		return nil, err
 	}
 	return &info, nil
+}
+
+// RequestScan asks Shodan to crawl ip on demand. It costs one scan credit
+// and needs a plan that includes scan credits. Poll the returned ID with
+// ScanStatus.
+func (c *Client) RequestScan(ctx context.Context, key, ip string) (id string, creditsLeft int, err error) {
+	var out struct {
+		ID          string `json:"id"`
+		CreditsLeft int    `json:"credits_left"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/shodan/scan", url.Values{"key": {key}}, url.Values{"ips": {ip}}, &out); err != nil {
+		return "", 0, err
+	}
+	if out.ID == "" {
+		return "", 0, errors.New("shodan accepted the scan request but returned no scan ID")
+	}
+	return out.ID, out.CreditsLeft, nil
+}
+
+// ScanDone is the ScanStatus value of a finished scan. Others are
+// SUBMITTING, QUEUE and PROCESSING.
+const ScanDone = "DONE"
+
+// ScanStatus returns the state of an on-demand scan.
+func (c *Client) ScanStatus(ctx context.Context, key, id string) (string, error) {
+	var out struct {
+		Status string `json:"status"`
+	}
+	if err := c.get(ctx, "/shodan/scan/"+url.PathEscape(id), url.Values{"key": {key}}, &out); err != nil {
+		return "", err
+	}
+	return out.Status, nil
 }
 
 type rawVuln struct {

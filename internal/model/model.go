@@ -15,6 +15,9 @@ type Config struct {
 	DNSServer            string `json:"dns_server,omitempty"`
 	CheckIntervalMinutes int    `json:"check_interval_minutes"`
 	ShodanRefreshHours   int    `json:"shodan_refresh_hours"`
+	// RescanOnIPChange asks Shodan for an on-demand scan of the new address
+	// whenever the IP changes (one scan credit each time).
+	RescanOnIPChange bool `json:"rescan_on_ip_change,omitempty"`
 }
 
 const (
@@ -101,6 +104,27 @@ type Service struct {
 	Vulns     []Vuln    `json:"vulns,omitempty"`
 	Banner    string    `json:"banner,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
+}
+
+// Rescan tracks the latest on-demand scan requested from Shodan.
+type Rescan struct {
+	ID          string    `json:"id"`
+	IP          string    `json:"ip"`
+	RequestedAt time.Time `json:"requested_at"`
+	Auto        bool      `json:"auto,omitempty"` // requested because the IP changed
+	Status      string    `json:"status,omitempty"`
+	CreditsLeft int       `json:"credits_left"`
+	CompletedAt time.Time `json:"completed_at,omitempty"`
+	Error       string    `json:"error,omitempty"` // set when following the scan failed
+}
+
+// RescanPollWindow is how long a requested rescan is followed before the
+// app stops asking Shodan about it.
+const RescanPollWindow = 24 * time.Hour
+
+// Pending reports whether the rescan may still be running at Shodan.
+func (r *Rescan) Pending(now time.Time) bool {
+	return r != nil && r.Error == "" && r.CompletedAt.IsZero() && now.Sub(r.RequestedAt) < RescanPollWindow
 }
 
 // Scan is the result of one Shodan host lookup.

@@ -20,6 +20,9 @@ Then open **Configuration** and enter:
 - **Hostname**: your DDNS name, for example `myhome.duckdns.org`.
 - **DNS server** (optional): query a specific server directly (for example your DDNS provider's authoritative nameserver or `1.1.1.1`) to avoid stale caches or split-horizon answers.
 - **Intervals**: how often to re-resolve the hostname (default 10 min) and how often to re-query Shodan for an unchanged IP (default 12 h). Shodan is always re-queried right away when the IP changes.
+- **Request a Shodan rescan when my IP changes** (optional): Shodan crawls each address only every few days, so right after a change its data mostly describes the previous holder. With this on, the app asks Shodan for an on-demand scan of the new IP, checks its progress every 2 minutes, and re-fetches the host data when the scan is done. Each rescan uses 1 scan credit, which needs a paid plan.
+
+The dashboard's **Request rescan** button asks for an on-demand scan of the current IP at any time (also 1 scan credit). It's disabled while a rescan of that IP is still running.
 
 ### Flags
 

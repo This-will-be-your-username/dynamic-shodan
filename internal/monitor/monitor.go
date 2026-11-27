@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"net/netip"
 	"sort"
 	"strings"
@@ -71,6 +72,11 @@ func (m *Monitor) Run(ctx context.Context) {
 			log.Printf("check: %v", err)
 		}
 		interval := m.store.Config().CheckInterval()
+		// Follow a running on-demand scan more closely so its results show
+		// up soon after Shodan finishes.
+		if m.store.Snapshot().Rescan.Pending(m.Now()) && interval > RescanPollInterval {
+			interval = RescanPollInterval
+		}
 		m.mu.Lock()
 		m.nextCheck = time.Now().Add(interval)
 		m.mu.Unlock()
@@ -87,9 +93,14 @@ func (m *Monitor) Run(ctx context.Context) {
 	}
 }
 
+// RescanPollInterval is how often a running on-demand scan is checked.
+const RescanPollInterval = 2 * time.Minute
+
 // CheckOnce resolves the hostname, records the IP, and fetches Shodan intel
 // when the IP changed, the cached scan predates the current ownership
-// period, the cache is older than the refresh interval, or force is set.
+// period, the cache is older than the refresh interval, a requested rescan
+// has just finished, or force is set. If enabled, it also requests a
+// Shodan rescan when the IP changes.
 func (m *Monitor) CheckOnce(ctx context.Context, force bool) error {
 	m.checkMu.Lock()
 	defer m.checkMu.Unlock()
@@ -123,6 +134,15 @@ func (m *Monitor) CheckOnce(ctx context.Context, force bool) error {
 	}
 
 	snap := m.store.Snapshot()
+	// len > 1: a real change, not the first address the app has seen.
+	if changed && cfg.RescanOnIPChange && len(snap.History) > 1 {
+		if _, err := m.requestRescan(ctx, cfg, ip, now, true); err != nil {
+			log.Printf("rescan: %v", err)
+		}
+	} else if r := snap.Rescan; r.Pending(now) && r.IP == ip && m.pollRescan(ctx, cfg, *r, now) {
+		force = true
+	}
+
 	owner, _ := model.OwnershipFor(snap.History, ip, now)
 	if prev := snap.Scans[ip]; !force && prev != nil &&
 		!prev.FetchedAt.Before(owner.FirstSeen) &&
@@ -144,6 +164,80 @@ func (m *Monitor) CheckOnce(ctx context.Context, force bool) error {
 	}
 	log.Printf("shodan: %s has %d service record(s)", ip, len(scan.Services))
 	return m.finish(now, nil)
+}
+
+// ErrRescanPending is returned by RequestRescan while an earlier rescan of
+// the same IP is still running.
+var ErrRescanPending = errors.New("a rescan of this IP is already in progress")
+
+// RequestRescan asks Shodan to scan the current IP now. The result is
+// picked up automatically once Shodan reports the scan as done.
+func (m *Monitor) RequestRescan(ctx context.Context) (model.Rescan, error) {
+	m.checkMu.Lock()
+	defer m.checkMu.Unlock()
+	cfg := m.store.Config()
+	if cfg.ShodanAPIKey == "" {
+		return model.Rescan{}, errors.New("no Shodan API key configured")
+	}
+	snap := m.store.Snapshot()
+	cur, ok := snap.Current()
+	if !ok {
+		return model.Rescan{}, errors.New("current IP is not known yet")
+	}
+	now := m.Now()
+	if r := snap.Rescan; r.Pending(now) && r.IP == cur.IP {
+		return *r, ErrRescanPending
+	}
+	r, err := m.requestRescan(ctx, cfg, cur.IP, now, false)
+	if err == nil {
+		m.Trigger(false) // reschedule the loop to follow the scan
+	}
+	return r, err
+}
+
+// requestRescan submits an on-demand scan and records the outcome, failed
+// or not, so the dashboard can show it.
+func (m *Monitor) requestRescan(ctx context.Context, cfg model.Config, ip string, now time.Time, auto bool) (model.Rescan, error) {
+	sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	id, credits, err := m.shodan.RequestScan(sctx, cfg.ShodanAPIKey, ip)
+	cancel()
+	r := model.Rescan{ID: id, IP: ip, RequestedAt: now, Auto: auto, CreditsLeft: credits, Status: "SUBMITTING"}
+	if err != nil {
+		r.Status, r.Error = "", "request failed: "+err.Error()
+		err = fmt.Errorf("requesting Shodan rescan of %s: %w", ip, err)
+	} else {
+		log.Printf("shodan: requested rescan of %s (scan %s, %d credit(s) left)", ip, id, credits)
+	}
+	if serr := m.store.SetRescan(r); serr != nil && err == nil {
+		err = serr
+	}
+	return r, err
+}
+
+// pollRescan updates the status of a running rescan and reports whether it
+// has just finished, meaning the host data should be re-fetched.
+func (m *Monitor) pollRescan(ctx context.Context, cfg model.Config, r model.Rescan, now time.Time) bool {
+	sctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	status, err := m.shodan.ScanStatus(sctx, cfg.ShodanAPIKey, r.ID)
+	cancel()
+	var apiErr *shodan.APIError
+	switch {
+	case errors.As(err, &apiErr) && apiErr.Status >= 400 && apiErr.Status < 500 && apiErr.Status != http.StatusTooManyRequests:
+		r.Error = "status check failed: " + err.Error() // won't fix itself; stop polling
+	case err != nil:
+		log.Printf("rescan status: %v", err) // transient; try again next check
+		return false
+	default:
+		r.Status = status
+		if status == shodan.ScanDone {
+			r.CompletedAt = now
+			log.Printf("shodan: rescan of %s finished", r.IP)
+		}
+	}
+	if err := m.store.SetRescan(r); err != nil {
+		log.Printf("rescan: %v", err)
+	}
+	return !r.CompletedAt.IsZero()
 }
 
 func (m *Monitor) finish(at time.Time, err error) error {
