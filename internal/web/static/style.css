@@ -92,3 +92,12 @@ form.inline button { padding: 4px 10px; }
 .rescan form { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .rescan .hint { margin: 0; }
 button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Telegram settings */
+span.label { display: block; font-weight: 500; margin: 14px 0 2px; }
+.input-row { display: flex; gap: 8px; align-items: stretch; }
+.input-row input { flex: 1; min-width: 0; }
+.input-row button { white-space: nowrap; }
+fieldset .actions { margin-top: 12px; }
+fieldset .flash { margin: 10px 0 0; }
+.hint code, .hint strong { font-size: 12px; }

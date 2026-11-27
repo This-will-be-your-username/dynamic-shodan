@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"dynamic-shodan/internal/monitor"
+	"dynamic-shodan/internal/notify"
 	"dynamic-shodan/internal/shodan"
 	"dynamic-shodan/internal/store"
 	"dynamic-shodan/internal/web"
@@ -47,8 +48,10 @@ func run(listen, dataDir string) error {
 		return err
 	}
 	client := shodan.New()
+	notifier := notify.New(st.Config)
 	mon := monitor.New(st, client)
-	srv, err := web.New(st, mon, client)
+	mon.Notifier = notifier
+	srv, err := web.New(st, mon, client, notifier)
 	if err != nil {
 		return err
 	}
@@ -59,6 +62,7 @@ func run(listen, dataDir string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	go notifier.Run(ctx)
 	go mon.Run(ctx)
 
 	hs := &http.Server{

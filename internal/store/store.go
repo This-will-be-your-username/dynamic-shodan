@@ -27,8 +27,10 @@ type State struct {
 	Scans     map[string]*model.Scan `json:"scans"` // latest scan per IP
 	LastCheck time.Time              `json:"last_check"`
 	LastError string                 `json:"last_error,omitempty"`
-	Rescan    *model.Rescan          `json:"rescan,omitempty"`  // latest on-demand scan request
-	Credits   *model.Credits         `json:"credits,omitempty"` // last known credit balance
+	// ErrorSince is when the current run of failed checks started.
+	ErrorSince time.Time      `json:"error_since,omitempty"`
+	Rescan     *model.Rescan  `json:"rescan,omitempty"`  // latest on-demand scan request
+	Credits    *model.Credits `json:"credits,omitempty"` // last known credit balance
 }
 
 // CreditsFor returns the stored credit balance if it belongs to key; nil
@@ -154,15 +156,33 @@ func (s *Store) SetCredits(c model.Credits) error {
 	return s.saveStateLocked()
 }
 
-func (s *Store) SetCheckResult(at time.Time, checkErr error) error {
+// HealthChange says whether a check result flipped between OK and failing.
+type HealthChange struct {
+	Failed       bool      // was OK (or unknown), now failing
+	Recovered    bool      // was failing, now OK
+	FailingSince time.Time // when the failure run started
+}
+
+func (s *Store) SetCheckResult(at time.Time, checkErr error) (HealthChange, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var hc HealthChange
+	wasFailing := s.st.LastError != ""
 	s.st.LastCheck = at
-	s.st.LastError = ""
 	if checkErr != nil {
 		s.st.LastError = checkErr.Error()
+		if !wasFailing || s.st.ErrorSince.IsZero() {
+			s.st.ErrorSince = at
+			hc.Failed = !wasFailing
+		}
+		hc.FailingSince = s.st.ErrorSince
+	} else {
+		hc.Recovered = wasFailing
+		hc.FailingSince = s.st.ErrorSince
+		s.st.LastError = ""
+		s.st.ErrorSince = time.Time{}
 	}
-	return s.saveStateLocked()
+	return hc, s.saveStateLocked()
 }
 
 // SetPeriodStart backdates (or moves) the start of period idx, e.g. when

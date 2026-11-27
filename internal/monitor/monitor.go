@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"dynamic-shodan/internal/model"
+	"dynamic-shodan/internal/notify"
 	"dynamic-shodan/internal/shodan"
 	"dynamic-shodan/internal/store"
 )
@@ -28,6 +29,8 @@ type Monitor struct {
 	shodan  *shodan.Client
 	Resolve Resolver
 	Now     func() time.Time
+	// Notifier receives alerts; nil disables notifications.
+	Notifier *notify.Notifier
 
 	trigger chan bool // value = force Shodan refresh
 	checkMu sync.Mutex
@@ -127,6 +130,9 @@ func (m *Monitor) CheckOnce(ctx context.Context, force bool) error {
 	}
 	if changed {
 		log.Printf("public IP is now %s (via %s)", ip, cfg.Hostname)
+		if h := m.store.Snapshot().History; len(h) > 1 {
+			m.Notifier.Notify(notify.EventIPChange, notify.IPChangedMessage(cfg.Hostname, h[len(h)-2], h[len(h)-1]))
+		}
 	}
 
 	if cfg.ShodanAPIKey == "" {
@@ -169,6 +175,7 @@ func (m *Monitor) CheckOnce(ctx context.Context, force bool) error {
 		return m.finish(now, err)
 	}
 	log.Printf("shodan: %s has %d service record(s)", ip, len(scan.Services))
+	m.notifyExposure(snap.History, snap.Scans[ip], scan, owner)
 	return m.finish(now, nil)
 }
 
@@ -280,9 +287,37 @@ func (m *Monitor) pollRescan(ctx context.Context, cfg model.Config, r model.Resc
 	return !r.CompletedAt.IsZero()
 }
 
+// notifyExposure alerts on services and vulnerabilities that are new since
+// the previous scan from the same ownership period. Stale findings (from
+// before the IP was yours) never trigger an alert.
+func (m *Monitor) notifyExposure(history []model.Period, prev, scan *model.Scan, owner model.Period) {
+	fresh, _ := model.Classify(scan, owner, true)
+	var prevFresh []model.Verdict
+	havePrev := false
+	if prev != nil {
+		if po, ok := model.OwnershipFor(history, prev.IP, prev.FetchedAt); ok && po.FirstSeen.Equal(owner.FirstSeen) {
+			prevFresh, _ = model.Classify(prev, po, true)
+			havePrev = true
+		}
+	}
+	if e := notify.DiffExposure(scan.IP, prevFresh, havePrev, fresh); !e.Empty() {
+		m.Notifier.Notify(notify.EventExposure, notify.ExposureMessage(e))
+	}
+}
+
 func (m *Monitor) finish(at time.Time, err error) error {
-	if serr := m.store.SetCheckResult(at, err); serr != nil && err == nil {
+	hc, serr := m.store.SetCheckResult(at, err)
+	if serr != nil && err == nil {
 		err = serr
+	}
+	if errors.Is(err, context.Canceled) {
+		return err // shutting down; not worth an alert
+	}
+	switch {
+	case hc.Failed:
+		m.Notifier.Notify(notify.EventHealth, notify.HealthMessage(err.Error(), hc.FailingSince, at))
+	case hc.Recovered:
+		m.Notifier.Notify(notify.EventHealth, notify.HealthMessage("", hc.FailingSince, at))
 	}
 	return err
 }

@@ -22,6 +22,7 @@ import (
 
 	"dynamic-shodan/internal/model"
 	"dynamic-shodan/internal/monitor"
+	"dynamic-shodan/internal/notify"
 	"dynamic-shodan/internal/shodan"
 	"dynamic-shodan/internal/store"
 )
@@ -30,14 +31,15 @@ import (
 var assets embed.FS
 
 type Server struct {
-	store  *store.Store
-	mon    *monitor.Monitor
-	shodan *shodan.Client
-	pages  map[string]*template.Template
+	store    *store.Store
+	mon      *monitor.Monitor
+	shodan   *shodan.Client
+	notifier *notify.Notifier
+	pages    map[string]*template.Template
 }
 
-func New(s *store.Store, m *monitor.Monitor, c *shodan.Client) (*Server, error) {
-	srv := &Server{store: s, mon: m, shodan: c, pages: map[string]*template.Template{}}
+func New(s *store.Store, m *monitor.Monitor, c *shodan.Client, n *notify.Notifier) (*Server, error) {
+	srv := &Server{store: s, mon: m, shodan: c, notifier: n, pages: map[string]*template.Template{}}
 	for _, name := range []string{"dashboard", "history", "config"} {
 		t, err := template.New(name).Funcs(funcs).ParseFS(assets, "templates/layout.html", "templates/"+name+".html")
 		if err != nil {
@@ -56,6 +58,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /config", s.configPage)
 	mux.HandleFunc("POST /config", s.saveConfig)
 	mux.HandleFunc("POST /config/test", s.testKey)
+	mux.HandleFunc("POST /config/telegram/test", s.testTelegram)
+	mux.HandleFunc("POST /config/telegram/chats", s.findTelegramChats)
 	mux.HandleFunc("POST /check", s.checkNow)
 	mux.HandleFunc("POST /rescan", s.rescanNow)
 	mux.HandleFunc("GET /api/status", s.apiStatus)
@@ -264,16 +268,33 @@ type configView struct {
 	DataDir string
 	MaxMin  int
 	MaxHrs  int
+	// Telegram
+	TGHint     string
+	TGSet      bool // a token is stored; before that, event boxes default to on
+	TGEnabled  bool
+	TGStatus   notify.Status
+	TGNotifyIP bool
+	TGNotifyEx bool
+	TGNotifyHC bool
 }
 
 func (s *Server) configPage(w http.ResponseWriter, r *http.Request) {
 	cfg := s.store.Config()
-	hint := cfg.KeyHint()
-	cfg.ShodanAPIKey = "" // never send the key back to the browser
-	s.render(w, r, "config", "Configuration", configView{
-		Cfg: cfg, KeyHint: hint, DataDir: s.store.Dir(),
+	v := configView{
+		KeyHint: cfg.KeyHint(), DataDir: s.store.Dir(),
 		MaxMin: model.MaxCheckIntervalMinutes, MaxHrs: model.MaxShodanRefreshHours,
-	})
+		TGHint: cfg.TelegramTokenHint(), TGSet: cfg.TelegramBotToken != "", TGEnabled: cfg.TelegramEnabled(),
+	}
+	if s.notifier != nil {
+		v.TGStatus = s.notifier.Status()
+	}
+	v.TGNotifyIP = cfg.NotifyIPChange || !v.TGSet
+	v.TGNotifyEx = cfg.NotifyExposure || !v.TGSet
+	v.TGNotifyHC = cfg.NotifyHealth || !v.TGSet
+	// Never send secrets back to the browser.
+	cfg.ShodanAPIKey, cfg.TelegramBotToken = "", ""
+	v.Cfg = cfg
+	s.render(w, r, "config", "Configuration", v)
 }
 
 func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request) {
@@ -296,21 +317,7 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request) {
 // fetch (Accept: application/json) so the form keeps its unsaved values; a
 // plain form post (no JavaScript) falls back to a redirect with a flash message.
 func (s *Server) testKey(w http.ResponseWriter, r *http.Request) {
-	reply := func(ok bool, msg string) {
-		if strings.Contains(r.Header.Get("Accept"), "application/json") {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(struct {
-				OK      bool   `json:"ok"`
-				Message string `json:"message"`
-			}{ok, msg})
-			return
-		}
-		key := "err"
-		if ok {
-			key = "ok"
-		}
-		redirect(w, r, "/config", key, msg)
-	}
+	reply := func(ok bool, msg string) { replyTest(w, r, ok, msg, "") }
 
 	key := strings.TrimSpace(r.FormValue("shodan_api_key"))
 	if key == "" {
@@ -329,6 +336,111 @@ func (s *Server) testKey(w http.ResponseWriter, r *http.Request) {
 	}
 	reply(true, fmt.Sprintf("Key is valid (plan: %s, query credits: %d, scan credits: %d). Not saved yet unless you press Save.",
 		info.Plan, info.QueryCredits, info.ScanCredits))
+}
+
+// replyTest answers the config page's in-place test buttons: JSON for the
+// fetch call, or a redirect with a flash message when JavaScript is off.
+// fill, if set, is a value the page copies into a form field.
+func replyTest(w http.ResponseWriter, r *http.Request, ok bool, msg, fill string) {
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(struct {
+			OK      bool   `json:"ok"`
+			Message string `json:"message"`
+			Fill    string `json:"fill,omitempty"`
+		}{ok, msg, fill})
+		return
+	}
+	key := "err"
+	if ok {
+		key = "ok"
+	}
+	redirect(w, r, "/config", key, msg)
+}
+
+// telegramFromForm returns the bot token and chat ID to test with: the
+// values typed in the form, falling back to the stored ones.
+func (s *Server) telegramFromForm(r *http.Request) (token, chat string, err error) {
+	cfg := s.store.Config()
+	token = strings.TrimSpace(r.FormValue("telegram_bot_token"))
+	if token == "" {
+		token = cfg.TelegramBotToken
+	}
+	chat = strings.TrimSpace(r.FormValue("telegram_chat_id"))
+	if chat == "" && !r.Form.Has("telegram_chat_id") {
+		chat = cfg.TelegramChatID
+	}
+	switch {
+	case token == "":
+		return "", "", errors.New("Enter a bot token first. Create a bot by messaging @BotFather in Telegram.")
+	case !notify.ValidToken(token):
+		return "", "", errors.New("That doesn't look like a bot token (it should look like 123456789:AA…).")
+	case chat != "" && !notify.ValidChatID(chat):
+		return "", "", errors.New("Chat ID should be a number (negative for groups) or a public channel's @name.")
+	}
+	return token, chat, nil
+}
+
+func (s *Server) testTelegram(w http.ResponseWriter, r *http.Request) {
+	token, chat, err := s.telegramFromForm(r)
+	if err == nil && chat == "" {
+		err = errors.New("Enter a chat ID, or use Find chat ID.")
+	}
+	if err != nil {
+		replyTest(w, r, false, err.Error(), "")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	tg := s.notifier.TG
+	bot, err := tg.BotName(ctx, token)
+	if err == nil {
+		err = tg.Send(ctx, token, chat, notify.TestMessage(s.store.Config().Hostname))
+	}
+	if err != nil {
+		msg := "Telegram test failed: " + err.Error()
+		if strings.Contains(err.Error(), "chat not found") {
+			msg += ". Make sure you've started a conversation with the bot (or added it to the group)."
+		}
+		replyTest(w, r, false, msg, "")
+		return
+	}
+	replyTest(w, r, true, fmt.Sprintf("Test message sent to chat %s via @%s. Press Save to keep these settings.", chat, bot), "")
+}
+
+func (s *Server) findTelegramChats(w http.ResponseWriter, r *http.Request) {
+	token, _, err := s.telegramFromForm(r)
+	if err != nil {
+		replyTest(w, r, false, err.Error(), "")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	tg := s.notifier.TG
+	bot, err := tg.BotName(ctx, token)
+	if err != nil {
+		replyTest(w, r, false, "Telegram lookup failed: "+err.Error(), "")
+		return
+	}
+	chats, err := tg.RecentChats(ctx, token)
+	if err != nil {
+		replyTest(w, r, false, "Telegram lookup failed: "+err.Error(), "")
+		return
+	}
+	if len(chats) == 0 {
+		replyTest(w, r, false, fmt.Sprintf("No recent messages to @%s. Open Telegram, send the bot any message (or add it to a group and post there), then try again.", bot), "")
+		return
+	}
+	var parts []string
+	for _, c := range chats {
+		parts = append(parts, fmt.Sprintf("%d (%s, %s)", c.ID, c.Title, c.Type))
+	}
+	id := strconv.FormatInt(chats[0].ID, 10)
+	msg := fmt.Sprintf("Found chat %s. Send a test message to confirm, then Save.", parts[0])
+	if len(parts) > 1 {
+		msg = fmt.Sprintf("Using the most recent chat, %s. Others: %s. Send a test message to confirm, then Save.", parts[0], strings.Join(parts[1:], "; "))
+	}
+	replyTest(w, r, true, msg, id)
 }
 
 func parseConfigForm(r *http.Request, old model.Config) (model.Config, error) {
@@ -368,6 +480,23 @@ func parseConfigForm(r *http.Request, old model.Config) (model.Config, error) {
 		return old, err
 	}
 	cfg.RescanOnIPChange = r.FormValue("rescan_on_ip_change") == "on"
+
+	if r.FormValue("clear_telegram_token") == "on" {
+		cfg.TelegramBotToken = ""
+	} else if t := strings.TrimSpace(r.FormValue("telegram_bot_token")); t != "" {
+		if !notify.ValidToken(t) {
+			return old, errors.New("that doesn't look like a Telegram bot token (it should look like 123456789:AA…)")
+		}
+		cfg.TelegramBotToken = t
+	}
+	chat := strings.TrimSpace(r.FormValue("telegram_chat_id"))
+	if chat != "" && !notify.ValidChatID(chat) {
+		return old, errors.New("Telegram chat ID should be a number (negative for groups) or a public channel's @name")
+	}
+	cfg.TelegramChatID = chat
+	cfg.NotifyIPChange = r.FormValue("notify_ip_change") == "on"
+	cfg.NotifyExposure = r.FormValue("notify_exposure") == "on"
+	cfg.NotifyHealth = r.FormValue("notify_health") == "on"
 	return cfg, nil
 }
 

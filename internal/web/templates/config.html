@@ -39,9 +39,43 @@
     <p class="hint">Shodan is always re-queried right away when your IP changes. A shorter IP check interval narrows the window in which ownership is uncertain.</p>
   </fieldset>
 
+  <fieldset>
+    <legend>Telegram notifications</legend>
+    <label for="tgtoken">Bot token</label>
+    <input id="tgtoken" type="password" name="telegram_bot_token" spellcheck="false" autocomplete="new-password"
+      placeholder="{{if $d.TGHint}}Token {{$d.TGHint}}. Leave blank to keep it{{else}}123456789:AA… from @BotFather{{end}}">
+    <p class="hint">In Telegram, message <strong>@BotFather</strong>, send <code>/newbot</code> and paste the token it gives you. Like the Shodan key, it's stored in the data directory and never shown again here.</p>
+    {{if $d.TGHint}}<label class="check"><input type="checkbox" name="clear_telegram_token"> Remove the stored token (turns notifications off)</label>{{end}}
+
+    <label for="tgchat">Chat ID</label>
+    <div class="input-row">
+      <input id="tgchat" type="text" name="telegram_chat_id" value="{{$d.Cfg.TelegramChatID}}" placeholder="e.g. 123456789" spellcheck="false" inputmode="text">
+      <button type="submit" formaction="/config/telegram/chats" class="secondary" data-test data-result="tg-result" data-fill="tgchat" data-busy="Looking…">Find chat ID</button>
+    </div>
+    <p class="hint">Send your bot any message (or add it to a group and post there), then press <em>Find chat ID</em>. Group IDs are negative. A public channel's <code>@name</code> also works if the bot is an admin there.</p>
+
+    <span class="label">Notify me about</span>
+    <label class="check"><input type="checkbox" name="notify_ip_change"{{if $d.TGNotifyIP}} checked{{end}}> Public IP changes</label>
+    <label class="check"><input type="checkbox" name="notify_exposure"{{if $d.TGNotifyEx}} checked{{end}}> New services or vulnerabilities on my current IP</label>
+    <label class="check"><input type="checkbox" name="notify_health"{{if $d.TGNotifyHC}} checked{{end}}> Checks failing and recovering</label>
+    <p class="hint">Only current findings alert. Anything Shodan recorded before the IP was yours is ignored. Failures alert once when they start and once when they clear.</p>
+
+    <div class="actions">
+      <button type="submit" formaction="/config/telegram/test" class="secondary" data-test data-result="tg-result" data-busy="Sending…">Send test message</button>
+    </div>
+    <div id="tg-result" class="flash" role="status" aria-live="polite" hidden></div>
+    {{if $d.TGEnabled}}
+    <p class="hint">
+      {{if $d.TGStatus.LastError}}<span class="error-line">Last delivery failed {{ago $d.TGStatus.ErrorAt}}: {{$d.TGStatus.LastError}}</span>
+      {{else if not $d.TGStatus.LastSent.IsZero}}Last notification sent {{ago $d.TGStatus.LastSent}}.
+      {{else}}Notifications are on. Nothing has been sent since the app started.{{end}}
+    </p>
+    {{end}}
+  </fieldset>
+
   <div class="actions">
     <button type="submit">Save</button>
-    <button type="submit" formaction="/config/test" class="secondary" id="test-key">Test API key</button>
+    <button type="submit" formaction="/config/test" class="secondary" id="test-key" data-test data-result="test-result" data-busy="Testing…">Test API key</button>
   </div>
   <div id="test-result" class="flash" role="status" aria-live="polite" hidden></div>
 </form>

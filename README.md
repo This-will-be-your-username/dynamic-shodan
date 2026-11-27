@@ -18,6 +18,7 @@ dynamic-shodan fixes that:
 2. It keeps an **IP history**: one entry for each continuous stretch you held an address, with first-seen and last-seen timestamps.
 3. It pulls **Shodan host intel** for the current IP and **disregards stale findings**. Any service Shodan recorded *before* the address became yours is shown separately and not counted.
 4. Optionally, it asks Shodan for an **on-demand rescan** when your IP changes, so you get fresh data about *your* services instead of waiting days for Shodan's next crawl.
+5. Optionally, it sends **Telegram notifications** when your IP changes, when new services or vulnerabilities show up on it, and when checks start failing or recover.
 
 It's a single self-contained binary: Go standard library only, no cgo, templates and CSS embedded. It runs on Windows, macOS, Linux and FreeBSD, and as a multi-arch Docker image.
 
@@ -49,6 +50,7 @@ Then:
 3. Enter your DDNS hostname and **Save**.
 4. Back on the **Dashboard**, click **Check now**. Your IP, Shodan intel and any current exposure appear within a few seconds.
 5. If you've had the same IP for a while, open **IP history** and set the real start date (see [First run](#first-run-set-your-real-start-date)).
+6. Optional: set up [Telegram notifications](#telegram-notifications) to hear about IP changes and new exposure.
 
 ---
 
@@ -75,8 +77,8 @@ By default the UI listens on **loopback only**. If you bind to anything else (`-
 
 It holds two files:
 
-- `config.json`: settings and the Shodan API key. The key is stored in plain text (mode `0600` on Unix) and is never sent back to the browser; the UI only shows a short hint of it.
-- `state.json`: IP history, the latest cached Shodan scan per IP, rescan status and the last known credit balance.
+- `config.json`: settings, the Shodan API key and, if set, the Telegram bot token. Both secrets are stored in plain text (mode `0600` on Unix) and are never sent back to the browser; the UI only shows a short hint of each.
+- `state.json`: IP history, the latest cached Shodan scan per IP, rescan status, the last known credit balance and when the current run of failed checks started.
 
 Back up the directory to keep your history. Delete `state.json` to start over without losing settings.
 
@@ -273,6 +275,27 @@ You can edit the **start date** of any period. Use this after first install: the
 | **Check interval** | How often to re-resolve the hostname. Default 10 minutes. |
 | **Shodan refresh** | How often to re-query Shodan when the IP hasn't changed. Default 12 hours. Shodan is always re-queried immediately when the IP changes. |
 | **Request a Shodan rescan when my IP changes** | Optional. See below. |
+| **Telegram notifications** | Optional. Bot token, chat ID and which events to send. See below. |
+
+### Telegram notifications
+
+**Setup:**
+
+1. In Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`, and copy the token it gives you.
+2. Paste the token into **Configuration → Telegram notifications → Bot token**.
+3. Send your new bot any message. For a group, add the bot to the group and post a message there.
+4. Press **Find chat ID**. The app reads the bot's recent messages and fills in the chat ID. You can also type it yourself: a number (negative for groups), or a public channel's `@name` if the bot is an admin there.
+5. Press **Send test message**, then **Save**.
+
+**Events:** you can switch each one on or off.
+
+| Event | When it's sent |
+|---|---|
+| **Public IP changes** | The hostname resolves to a different address. Includes the old and new IP and how long you held the old one. |
+| **New services or vulnerabilities** | A Shodan fetch finds current services or vulnerabilities that weren't in the previous fetch from the same ownership period. The first fetch after an IP change lists everything current on the new IP. Stale findings, recorded before the IP was yours, never alert. |
+| **Checks failing and recovering** | Once when checks start failing (DNS, Shodan, configuration), and once when they work again, with how long they failed. Not on every failed check. |
+
+Messages are sent in the background with retries. Telegram rate limits are respected, and a slow Telegram never delays a check. The bot token is stored in the data directory alongside the Shodan key and is never sent back to the browser. The config page shows when the last notification was sent, or the last delivery error.
 
 ### On-demand rescans
 
@@ -312,6 +335,8 @@ curl -u admin:change-me http://localhost:8080/api/status
 | `POST` | `/history/{idx}/start` | Set a period's start date |
 | `GET` / `POST` | `/config` | View / save settings |
 | `POST` | `/config/test` | Test the API key |
+| `POST` | `/config/telegram/test` | Send a Telegram test message |
+| `POST` | `/config/telegram/chats` | Find the chat ID from the bot's recent messages |
 | `POST` | `/check` | Check now |
 | `POST` | `/rescan` | Request a Shodan rescan |
 | `GET` | `/api/status` | JSON status |
@@ -321,7 +346,8 @@ curl -u admin:change-me http://localhost:8080/api/status
 - Loopback-only by default; no built-in authentication, so expose it only on trusted networks or behind an authenticating reverse proxy.
 - Form posts are protected against cross-site requests (`http.CrossOriginProtection`).
 - Pages send a strict Content-Security-Policy.
-- The API key never leaves the server after you save it.
+- The Shodan API key and Telegram bot token never leave the server after you save them, and both are scrubbed from error messages and logs.
+- Outbound connections go only to your DNS resolver, `api.shodan.io` and, if notifications are on, `api.telegram.org`.
 
 ## Development
 
@@ -335,6 +361,7 @@ go vet ./...
 | `internal/model` | Types and staleness rules |
 | `internal/store` | JSON persistence and IP history |
 | `internal/shodan` | Shodan API client |
-| `internal/monitor` | Scheduler: DNS checks, Shodan refreshes, rescans |
+| `internal/monitor` | Scheduler: DNS checks, Shodan refreshes, rescans, notification triggers |
+| `internal/notify` | Telegram Bot API client, background sender, message formatting |
 | `internal/web` | HTTP handlers, embedded templates and CSS |
 | `root/` | s6-overlay service definitions for the container |

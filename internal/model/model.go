@@ -20,6 +20,28 @@ type Config struct {
 	// RescanOnIPChange asks Shodan for an on-demand scan of the new address
 	// whenever the IP changes (one scan credit each time).
 	RescanOnIPChange bool `json:"rescan_on_ip_change,omitempty"`
+
+	// Telegram notifications. Both token and chat ID are needed to send.
+	TelegramBotToken string `json:"telegram_bot_token,omitempty"`
+	TelegramChatID   string `json:"telegram_chat_id,omitempty"`
+	NotifyIPChange   bool   `json:"notify_ip_change,omitempty"`
+	NotifyExposure   bool   `json:"notify_exposure,omitempty"`
+	NotifyHealth     bool   `json:"notify_health,omitempty"`
+}
+
+// TelegramEnabled reports whether notifications can be sent.
+func (c Config) TelegramEnabled() bool { return c.TelegramBotToken != "" && c.TelegramChatID != "" }
+
+// TelegramTokenHint returns a non-secret hint identifying the stored token.
+func (c Config) TelegramTokenHint() string {
+	t := c.TelegramBotToken
+	if t == "" {
+		return ""
+	}
+	if len(t) <= 12 {
+		return "set"
+	}
+	return "ends in " + t[len(t)-4:]
 }
 
 const (
