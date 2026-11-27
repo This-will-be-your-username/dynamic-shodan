@@ -1,3 +1,5 @@
+<img src="docs/logo.svg" alt="" width="96" height="96" align="right">
+
 # dynamic-shodan
 
 A small self-hosted web app that shows what [Shodan](https://www.shodan.io/) can see on your home or office connection, even when that connection has a **dynamic public IP**.

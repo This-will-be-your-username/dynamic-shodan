@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="256" height="256" role="img" aria-label="dynamic-shodan logo">
+  <rect width="64" height="64" rx="14" fill="#b4232c"/>
+  <g fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round">
+    <path d="M14.68 22 A20 20 0 0 1 49.32 22"/>
+    <path d="M49.32 42 A20 20 0 0 1 14.68 42"/>
+  </g>
+  <g fill="#fff" stroke="#fff" stroke-width="1.5" stroke-linejoin="round">
+    <polygon points="53.2,19.75 45.4,24.25 51.8,26.3"/>
+    <polygon points="10.78,44.25 18.58,39.75 12.18,37.67"/>
+  </g>
+  <circle cx="32" cy="32" r="7" fill="#fff"/>
+</svg>

@@ -23,7 +23,8 @@ a { color: var(--accent); }
 .nowrap { white-space: nowrap; }
 
 .top { display: flex; align-items: center; gap: 24px; padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-.brand { font-weight: 700; font-size: 17px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; color: var(--text); text-decoration: none; }
+.brand img { display: block; }
 .brand span { color: var(--accent); }
 nav { display: flex; gap: 4px; flex-wrap: wrap; }
 nav a { text-decoration: none; color: var(--muted); padding: 6px 12px; border-radius: 6px; }
