@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -16,12 +17,16 @@ import (
 )
 
 func TestRescan(t *testing.T) {
-	var hosts, submits atomic.Int32
+	var hosts, submits, infos atomic.Int32
 	var status atomic.Value
 	status.Store("QUEUE")
 	var lastIPs atomic.Value
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api-info":
+			// Balance drops by one for every scan submitted so far.
+			infos.Add(1)
+			fmt.Fprintf(w, `{"plan":"dev","query_credits":50,"scan_credits":%d}`, 100-submits.Load())
 		case r.Method == http.MethodPost && r.URL.Path == "/shodan/scan":
 			submits.Add(1)
 			lastIPs.Store(r.FormValue("ips"))
@@ -59,9 +64,21 @@ func TestRescan(t *testing.T) {
 		}
 	}
 
-	check(1, 0) // first IP ever seen: no rescan
+	credits := func(wantScan int, wantInfos int32) {
+		t.Helper()
+		c := st.Snapshot().CreditsFor("k")
+		if c == nil || c.Scan != wantScan || infos.Load() != wantInfos {
+			t.Fatalf("credits = %+v after %d api-info call(s), want scan=%d after %d", c, infos.Load(), wantScan, wantInfos)
+		}
+	}
+
+	check(1, 0)     // first IP ever seen: no rescan
+	credits(100, 1) // unknown balance looked up
+	check(1, 0)
+	credits(100, 1) // known balance: no repeat lookup
 	ip = netip.MustParseAddr("203.0.113.2")
-	check(2, 1) // IP changed: rescan requested and host fetched
+	check(2, 1)    // IP changed: rescan requested and host fetched
+	credits(99, 2) // re-checked after the automatic rescan
 	if got := lastIPs.Load(); got != "203.0.113.2" {
 		t.Fatalf("scanned %v", got)
 	}
@@ -80,7 +97,8 @@ func TestRescan(t *testing.T) {
 	}
 
 	status.Store("DONE")
-	check(3, 1) // finished: host re-fetched despite fresh cache
+	check(3, 1)    // finished: host re-fetched despite fresh cache
+	credits(99, 3) // re-checked when the scan finished
 	if st.Snapshot().Rescan.Pending(clock) {
 		t.Fatal("rescan still pending after DONE")
 	}
@@ -90,6 +108,15 @@ func TestRescan(t *testing.T) {
 	res, err := m.RequestRescan(ctx)
 	if err != nil || res.Auto || submits.Load() != 2 {
 		t.Fatalf("manual rescan: %+v, %v, submits=%d", res, err, submits.Load())
+	}
+	credits(98, 4) // re-checked after the manual rescan
+
+	// A different key makes the balance unknown until it is looked up again.
+	cfg := st.Config()
+	cfg.ShodanAPIKey = "k2"
+	st.SaveConfig(cfg)
+	if st.Snapshot().CreditsFor("k2") != nil {
+		t.Fatal("credits of the old key reported for the new one")
 	}
 }
 

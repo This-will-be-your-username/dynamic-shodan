@@ -143,6 +143,12 @@ func (m *Monitor) CheckOnce(ctx context.Context, force bool) error {
 		force = true
 	}
 
+	// Fill in the credit balance whenever it isn't known yet (first run,
+	// new key, or an earlier lookup failed).
+	if m.store.Snapshot().CreditsFor(cfg.ShodanAPIKey) == nil {
+		m.refreshCredits(ctx, cfg, now, -1)
+	}
+
 	owner, _ := model.OwnershipFor(snap.History, ip, now)
 	if prev := snap.Scans[ip]; !force && prev != nil &&
 		!prev.FetchedAt.Before(owner.FirstSeen) &&
@@ -211,7 +217,38 @@ func (m *Monitor) requestRescan(ctx context.Context, cfg model.Config, ip string
 	if serr := m.store.SetRescan(r); serr != nil && err == nil {
 		err = serr
 	}
+	fallback := -1
+	if r.Error == "" {
+		fallback = credits
+	}
+	m.refreshCredits(ctx, cfg, now, fallback)
 	return r, err
+}
+
+// refreshCredits looks up the key's credit balance and stores it. If the
+// lookup fails and fallback is >= 0 (a scan credit count Shodan just
+// reported), that count is stored instead; otherwise the old value stays.
+func (m *Monitor) refreshCredits(ctx context.Context, cfg model.Config, now time.Time, fallback int) {
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	info, err := m.shodan.APIInfo(cctx, cfg.ShodanAPIKey)
+	cancel()
+	c := model.Credits{CheckedAt: now, KeyID: model.KeyID(cfg.ShodanAPIKey)}
+	switch {
+	case err == nil:
+		c.Scan, c.Query, c.Plan = info.ScanCredits, info.QueryCredits, info.Plan
+	case fallback >= 0:
+		log.Printf("credits: %v (using count from scan request)", err)
+		c.Scan = fallback
+		if old := m.store.Snapshot().CreditsFor(cfg.ShodanAPIKey); old != nil {
+			c.Query, c.Plan = old.Query, old.Plan
+		}
+	default:
+		log.Printf("credits: %v", err)
+		return
+	}
+	if err := m.store.SetCredits(c); err != nil {
+		log.Printf("credits: %v", err)
+	}
 }
 
 // pollRescan updates the status of a running rescan and reports whether it
@@ -236,6 +273,9 @@ func (m *Monitor) pollRescan(ctx context.Context, cfg model.Config, r model.Resc
 	}
 	if err := m.store.SetRescan(r); err != nil {
 		log.Printf("rescan: %v", err)
+	}
+	if !r.CompletedAt.IsZero() {
+		m.refreshCredits(ctx, cfg, now, -1) // re-check once the scan has run
 	}
 	return !r.CompletedAt.IsZero()
 }

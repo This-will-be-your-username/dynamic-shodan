@@ -3,6 +3,8 @@
 package model
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"time"
@@ -116,6 +118,26 @@ type Rescan struct {
 	CreditsLeft int       `json:"credits_left"`
 	CompletedAt time.Time `json:"completed_at,omitempty"`
 	Error       string    `json:"error,omitempty"` // set when following the scan failed
+}
+
+// Credits is the last known Shodan credit balance for the configured key.
+type Credits struct {
+	Scan      int       `json:"scan"`
+	Query     int       `json:"query"`
+	Plan      string    `json:"plan,omitempty"`
+	CheckedAt time.Time `json:"checked_at"`
+	// KeyID fingerprints the API key the balance belongs to, so a new key
+	// makes the balance unknown again.
+	KeyID string `json:"key_id"`
+}
+
+// KeyID returns a short, non-reversible fingerprint of an API key.
+func KeyID(key string) string {
+	if key == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:8])
 }
 
 // RescanPollWindow is how long a requested rescan is followed before the

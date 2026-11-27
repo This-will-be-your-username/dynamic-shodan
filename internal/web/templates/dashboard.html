@@ -45,6 +45,10 @@
     {{with $d.Scan}}<a href="https://www.shodan.io/host/{{.IP}}" target="_blank" rel="noopener noreferrer">View {{.IP}} on Shodan ↗</a>
     {{else}}{{with $d.Current}}<a href="https://www.shodan.io/host/{{.IP}}" target="_blank" rel="noopener noreferrer">View {{.IP}} on Shodan ↗</a>{{end}}{{end}}
     <div class="rescan">
+      <div class="credits">Scan credits left:
+        {{with $d.Credits}}<strong>{{.Scan}}</strong> <span class="muted small">(checked {{ago .CheckedAt}})</span>
+        {{else}}<span class="muted">unknown</span>{{end}}
+      </div>
       {{with $d.Rescan}}
       <div class="small {{if .Error}}error-line{{else}}muted{{end}}">
         {{if .Auto}}Automatic rescan{{else}}Rescan{{end}} of <span class="mono">{{.IP}}</span> requested {{ago .RequestedAt}}:
@@ -54,7 +58,7 @@
       {{if $d.Current}}
       <form method="post" action="/rescan">
         <button type="submit" class="secondary"{{if not $d.CanRescan}} disabled{{end}}>Request rescan</button>
-        <span class="hint">Asks Shodan to scan {{$d.Current.IP}} now. Uses 1 scan credit.</span>
+        <span class="hint">{{if and $d.Credits (le $d.Credits.Scan 0)}}No scan credits left.{{else}}Asks Shodan to scan {{$d.Current.IP}} now. Uses 1 scan credit.{{end}}</span>
       </form>
       {{end}}
     </div>

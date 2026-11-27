@@ -86,7 +86,8 @@ form.inline { display: flex; gap: 6px; align-items: center; }
 form.inline input { width: auto; padding: 4px 6px; }
 form.inline button { padding: 4px 10px; }
 .rescan { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
-.rescan .error-line, .rescan .muted { margin-bottom: 8px; }
+.rescan .error-line, .rescan .muted, .rescan .credits { margin-bottom: 8px; }
+.rescan .credits .muted { margin-bottom: 0; }
 .rescan form { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .rescan .hint { margin: 0; }
 button:disabled { opacity: .5; cursor: not-allowed; }

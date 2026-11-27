@@ -17,6 +17,10 @@ import (
 func TestCheckOnceRefreshRules(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api-info" {
+			w.Write([]byte(`{"plan":"dev","query_credits":100,"scan_credits":100}`))
+			return
+		}
 		calls.Add(1)
 		w.Write([]byte(`{"ip_str":"x","data":[{"port":80,"transport":"tcp","timestamp":"2020-01-01T00:00:00.000000"}]}`))
 	}))

@@ -152,6 +152,8 @@ type dashView struct {
 	Rescan        *model.Rescan
 	RescanPending bool
 	CanRescan     bool
+	// Last known credit balance for the configured key; nil = unknown.
+	Credits *model.Credits
 }
 
 func (s *Server) buildDash(viewIP string) dashView {
@@ -182,8 +184,10 @@ func (s *Server) buildDash(viewIP string) dashView {
 	}
 	v.Rescan = snap.Rescan
 	v.RescanPending = snap.Rescan.Pending(time.Now())
+	v.Credits = snap.CreditsFor(cfg.ShodanAPIKey)
 	v.CanRescan = cfg.ShodanAPIKey != "" && v.Current != nil &&
-		!(v.RescanPending && snap.Rescan.IP == v.Current.IP)
+		!(v.RescanPending && snap.Rescan.IP == v.Current.IP) &&
+		!(v.Credits != nil && v.Credits.Scan <= 0)
 	return v
 }
 
@@ -429,6 +433,7 @@ func (s *Server) apiStatus(w http.ResponseWriter, r *http.Request) {
 		"fresh_vulns":    d.Vulns,
 		"rescan":         d.Rescan,
 		"rescan_pending": d.RescanPending,
+		"credits":        d.Credits,
 	}
 	if d.OwnerOK {
 		out["ownership"] = d.Owner
