@@ -1,0 +1,30 @@
+{{define "content"}}
+<h2>IP history</h2>
+<p class="muted">Each row is a continuous stretch when your hostname resolved to that address. “First seen” is the start of ownership: Shodan findings older than it are treated as stale.
+If you've held an address since before this app started watching, set its real start below so older findings count.</p>
+
+{{if .Data}}
+<div class="table-wrap"><table>
+  <thead><tr><th>IP</th><th>First seen</th><th>Last seen</th><th>Held for</th><th>Intel</th><th>Adjust start</th></tr></thead>
+  <tbody>
+  {{range .Data}}
+  <tr {{if .Current}}class="current"{{end}}>
+    <td class="mono nowrap">{{.Period.IP}}{{if .Current}} <span class="tag">current</span>{{end}}</td>
+    <td class="nowrap">{{day .Period.FirstSeen}}{{if .Period.Adjusted}} <span class="tag">set manually</span>{{end}}</td>
+    <td class="nowrap">{{day .Period.LastSeen}}</td>
+    <td class="nowrap">{{span .Period.FirstSeen .Period.LastSeen}}</td>
+    <td class="nowrap">{{if .HasScan}}<a href="/?ip={{.Period.IP}}">view</a> <span class="muted small">{{day .ScanAt}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+    <td>
+      <form method="post" action="/history/{{.Index}}/start" class="inline">
+        <input type="datetime-local" name="start" value="{{dtlocal .Period.FirstSeen}}" max="{{dtlocal .Period.LastSeen}}" {{if not .MinStart.IsZero}}min="{{dtlocal .MinStart}}"{{end}} required>
+        <button type="submit" class="secondary">Set</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+{{else}}
+<div class="card"><p>No IP observed yet.</p></div>
+{{end}}
+{{end}}

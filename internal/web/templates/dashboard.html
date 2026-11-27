@@ -1,0 +1,126 @@
+{{define "content"}}{{$d := .Data}}
+{{if not $d.Configured}}
+<div class="notice">Not fully configured yet. <a href="/config">Enter your Shodan API key and dynamic DNS hostname</a> to start monitoring.</div>
+{{end}}
+
+<section class="cards">
+  <div class="card">
+    <h3>Public IP</h3>
+    {{with $d.Current}}
+      <div class="big mono">{{.IP}}</div>
+      <div class="muted">held since {{day .FirstSeen}} · {{span .FirstSeen .LastSeen}}{{if .Adjusted}} · start set manually{{end}}</div>
+    {{else}}
+      <div class="big muted">unknown</div>
+    {{end}}
+    <div class="muted">via <span class="mono">{{if $d.Hostname}}{{$d.Hostname}}{{else}}(no hostname){{end}}</span></div>
+  </div>
+
+  <div class="card">
+    <h3>Monitoring</h3>
+    <dl>
+      <dt>Last check</dt><dd>{{if $d.LastCheck.IsZero}}never{{else}}{{ago $d.LastCheck}}{{end}}</dd>
+      <dt>Next check</dt><dd>{{if $d.Busy}}running now{{else if $d.NextCheck.IsZero}}—{{else}}{{until $d.NextCheck}}{{end}}</dd>
+    </dl>
+    {{with $d.LastError}}<div class="error-line">{{.}}</div>{{end}}
+    <form method="post" action="/check"><button type="submit">Check now</button></form>
+  </div>
+
+  <div class="card">
+    <h3>Shodan</h3>
+    {{with $d.Scan}}
+    <dl>
+      <dt>Fetched</dt><dd>{{ago .FetchedAt}}</dd>
+      {{if not .NotFound}}
+      <dt>Shodan updated</dt><dd>{{day .LastUpdate}}</dd>
+      {{with .Org}}<dt>Org</dt><dd>{{.}}</dd>{{end}}
+      {{with .ISP}}<dt>ISP</dt><dd>{{.}}</dd>{{end}}
+      {{with .ASN}}<dt>ASN</dt><dd>{{.}}</dd>{{end}}
+      {{if or .City .Country}}<dt>Location</dt><dd>{{.City}}{{if and .City .Country}}, {{end}}{{.Country}}</dd>{{end}}
+      {{with .OS}}<dt>OS</dt><dd>{{.}}</dd>{{end}}
+      {{end}}
+    </dl>
+    {{else}}
+    <div class="muted">No intel fetched for this IP yet.</div>
+    {{end}}
+  </div>
+</section>
+
+{{if $d.Viewing}}
+<div class="notice">Viewing cached intel for previous IP <span class="mono">{{$d.ViewIP}}</span>. <a href="/">Back to current IP</a></div>
+{{end}}
+
+{{with $d.Scan}}
+  {{if .NotFound}}
+  <div class="card"><p>Shodan has no information about <span class="mono">{{.IP}}</span>. Nothing is publicly indexed for this address.</p></div>
+  {{else}}
+  <section>
+    <h2>Current exposure <span class="count">{{len $d.Fresh}}</span></h2>
+    {{if $d.OwnerOK}}
+    <p class="muted">Services Shodan observed on <span class="mono">{{.IP}}</span> since {{ts $d.Owner.FirstSeen}}, when this address became yours.</p>
+    {{end}}
+    {{if $d.Fresh}}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Port</th><th>Service</th><th>Observed</th><th>Vulns</th></tr></thead>
+      <tbody>
+      {{range $d.Fresh}}
+      <tr>
+        <td class="mono nowrap">{{.Port}}/{{.Transport}}</td>
+        <td>
+          <div><strong>{{if .Product}}{{.Product}}{{else}}{{.Module}}{{end}}</strong>{{with .Version}} <span class="muted">{{.}}</span>{{end}}</div>
+          {{with .Title}}<div class="muted">“{{.}}”</div>{{end}}
+          {{with .Hostnames}}<div class="muted small">{{join . ", "}}</div>{{end}}
+          {{with .Banner}}<details><summary>banner</summary><pre>{{.}}</pre></details>{{end}}
+        </td>
+        <td class="nowrap">{{day .Timestamp}}<div class="muted small">{{ago .Timestamp}}</div></td>
+        <td>{{range .Vulns}}<span class="sev sev-{{sev .CVSS}}" title="{{.Summary}}">{{.ID}}</span> {{else}}<span class="muted">none</span>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table></div>
+    {{else}}
+    <div class="card"><p>No services observed since you took over this IP.</p></div>
+    {{end}}
+  </section>
+
+  {{if $d.Vulns}}
+  <section>
+    <h2>Vulnerabilities <span class="count">{{len $d.Vulns}}</span></h2>
+    <p class="muted">From current findings only. Shodan infers most of these from version strings (“unverified”).</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>ID</th><th>CVSS</th><th>Summary</th></tr></thead>
+      <tbody>
+      {{range $d.Vulns}}
+      <tr>
+        <td class="nowrap"><span class="sev sev-{{sev .CVSS}}">{{.ID}}</span>{{if .Verified}} <span class="tag">verified</span>{{end}}</td>
+        <td class="mono">{{cvss .CVSS}}</td>
+        <td class="small">{{.Summary}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table></div>
+  </section>
+  {{end}}
+
+  {{if $d.Stale}}
+  <section>
+    <details class="stale">
+      <summary><h2>Stale, disregarded <span class="count muted-count">{{len $d.Stale}}</span></h2></summary>
+      <p class="muted">Shodan recorded these before the address was yours, so they most likely describe a previous holder of the IP. They aren't counted above.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Port</th><th>Service</th><th>Why it's disregarded</th></tr></thead>
+        <tbody>
+        {{range $d.Stale}}
+        <tr>
+          <td class="mono nowrap">{{.Port}}/{{.Transport}}</td>
+          <td>{{if .Product}}{{.Product}}{{else}}{{.Module}}{{end}}{{with .Version}} <span class="muted">{{.}}</span>{{end}}{{if .Vulns}} <span class="muted small">({{len .Vulns}} vulns)</span>{{end}}</td>
+          <td class="small">{{.Reason}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table></div>
+    </details>
+  </section>
+  {{end}}
+  {{end}}
+{{end}}
+{{end}}

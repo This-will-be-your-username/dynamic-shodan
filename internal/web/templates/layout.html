@@ -1,0 +1,24 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · dynamic-shodan</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">dynamic<span>-shodan</span></div>
+  <nav>
+    <a href="/" {{if eq .Active "dashboard"}}class="active"{{end}}>Dashboard</a>
+    <a href="/history" {{if eq .Active "history"}}class="active"{{end}}>IP history</a>
+    <a href="/config" {{if eq .Active "config"}}class="active"{{end}}>Configuration</a>
+  </nav>
+</header>
+<main>
+{{with .Flash}}<div class="flash ok">{{.}}</div>{{end}}
+{{with .FlashErr}}<div class="flash err">{{.}}</div>{{end}}
+{{template "content" .}}
+</main>
+</body>
+</html>{{end}}

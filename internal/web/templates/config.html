@@ -1,0 +1,45 @@
+{{define "content"}}{{$d := .Data}}
+<h2>Configuration</h2>
+<form method="post" action="/config" class="card form" autocomplete="off">
+  <fieldset>
+    <legend>Shodan</legend>
+    <label for="key">API key</label>
+    <input id="key" type="password" name="shodan_api_key" spellcheck="false" autocomplete="new-password"
+      placeholder="{{if $d.KeyHint}}Key {{$d.KeyHint}}. Leave blank to keep it{{else}}Paste your Shodan API key{{end}}">
+    <p class="hint">Find it at account.shodan.io. Host lookups don't use query credits. The key is stored in the data directory and never shown again here.</p>
+    {{if $d.KeyHint}}<label class="check"><input type="checkbox" name="clear_key"> Remove the stored key</label>{{end}}
+  </fieldset>
+
+  <fieldset>
+    <legend>Dynamic DNS</legend>
+    <label for="host">Hostname</label>
+    <input id="host" type="text" name="hostname" value="{{$d.Cfg.Hostname}}" placeholder="myhome.duckdns.org" spellcheck="false">
+    <p class="hint">The DDNS name that always points at your current public IP.</p>
+
+    <label for="dns">DNS server (optional)</label>
+    <input id="dns" type="text" name="dns_server" value="{{$d.Cfg.DNSServer}}" placeholder="system resolver, or e.g. 1.1.1.1" spellcheck="false">
+    <p class="hint">Query this server directly to avoid stale local caches or split-horizon answers. Use the DDNS provider's authoritative nameserver for the fastest updates.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Schedule</legend>
+    <div class="row">
+      <div>
+        <label for="ci">Check IP every (minutes)</label>
+        <input id="ci" type="number" name="check_interval_minutes" min="1" max="{{$d.MaxMin}}" value="{{$d.Cfg.CheckIntervalMinutes}}" required>
+      </div>
+      <div>
+        <label for="sr">Refresh Shodan every (hours)</label>
+        <input id="sr" type="number" name="shodan_refresh_hours" min="1" max="{{$d.MaxHrs}}" value="{{$d.Cfg.ShodanRefreshHours}}" required>
+      </div>
+    </div>
+    <p class="hint">Shodan is always re-queried right away when your IP changes. A shorter IP check interval narrows the window in which ownership is uncertain.</p>
+  </fieldset>
+
+  <div class="actions">
+    <button type="submit">Save</button>
+    <button type="submit" formaction="/config/test" class="secondary">Test API key</button>
+  </div>
+</form>
+<p class="muted small">Data directory: <span class="mono">{{$d.DataDir}}</span></p>
+{{end}}
